@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Roulette Pressure Engine</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: white;
+    padding: 20px;
+}
+
+input {
+    width: 100%;
+    padding: 10px;
+    font-size: 18px;
+    margin-bottom: 20px;
+}
+
+/* rows */
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0;
+}
+
+.scroll-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+
+/* cells */
+.cell {
+    padding: 4px 6px;
+    font-weight: bold;
+    border-radius: 4px;
+    min-width: 28px;
+    text-align: center;
+    font-size: 12px;
+}
+
+/* numbers */
+.red { background:#c62828; }
+.black { background:#000; }
+.green { background:#2e7d32; }
+
+.RO {
+    background:#c62828;
+    color:white;
+    border-radius:50%; 
+}
+
+.RE {
+    background:#FF4D00; 
+    color:black;
+    border-radius:50%; 
+}
+
+.BO {
+    background:#1565c0; 
+    color:white;
+    border-radius:50%; 
+}
+
+.BE {
+    background:black; 
+    color:white;
+    border-radius:50%; 
+}
+
+
+/* headers */
+.stats {
+    font-size: 14px;
+    line-height: 1.6;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.label { color:#aaa; }
+
+h2 { margin-bottom: 10px; }
+
+</style>
+</head>
+
+<body>
+
+<h2>Roulette Pressure Engine</h2>
+
+<input id="input" placeholder="Paste numbers or enter spins">
+
+<!-- Row 2 -->
+<div id="live" class="stats"></div>
+
+<!-- Row 3 -->
+<div id="historyStats" class="stats"></div>
+
+<!-- Row 4 -->
+<div id="stream" class="scroll-row"></div>
+
+<!-- Row 5 -->
+<div id="numbers" class="row"></div>
+
+<script>
+
+const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+
+let history = [];
+
+// ---------------- CLASSIFY ----------------
+function classify(n){
+    if(n===0) return null;
+
+    if(RED.has(n) && n%2===1) return "RO";
+    if(!RED.has(n) && n%2===0) return "BE";
+    if(!RED.has(n) && n%2===1) return "BO";
+    if(RED.has(n) && n%2===0) return "RE";
+}
+
+// ---------------- INPUT ----------------
+function parseInput(s){
+    return s.replace(/,/g," ")
+        .split(/\s+/)
+        .map(x=>parseInt(x))
+        .filter(x=>!isNaN(x));
+}
+
+// ---------------- LIVE PRESSURE ----------------
+function calcPressure(hist){
+
+    function since(target, opposite){
+        let c = 0;
+        for(let i = 0; i < hist.length; i++){
+
+            let n = hist[i];
+            // 0 = universal delay step
+            if(n === 0){
+                c++;
+                continue;
+            }
+            let v = classify(n);
+            if(v === target) break;
+            if(v === opposite) c++;
+        }
+        return c;
+    }
+
+    return {
+        RO: since("RO","BE"),
+        BE: since("BE","RO"),
+        BO: since("BO","RE"),
+        RE: since("RE","BO")
+    };
+}
+
+// ---------------- HISTORIC ----------------
+function bucket(p){
+    if(p<=1) return "normal";
+    if(p<=3) return "mild";
+    if(p<=5) return "elevated";
+    if(p<=7) return "high";
+    return "extreme";
+}
+
+function calcHistory(hist, maxLookback = 500){
+
+    const slice = hist.slice(0, maxLookback);
+
+    const systems = {
+        RO: "BE",
+        BE: "RO",
+        BO: "RE",
+        RE: "BO"
+    };
+
+    let result = {};
+
+    for (let s in systems){
+
+        let opposite = systems[s];
+
+        let counts = {
+            normal: 0,
+            mild: 0,
+            elevated: 0,
+            high: 0,
+            extreme: 0
+        };
+
+        let maxPressure = 0;
+        let pressure = 0;
+
+        // we simulate forward in time
+        for (let i = slice.length - 1; i >= 0; i--){
+
+            let n = slice[i];
+
+            // 0 = global delay (all systems age)
+            if (n === 0){
+                pressure++;
+            } else {
+
+                let v = classify(n);
+
+                if (v === s){
+                    pressure = 0; // reset on own occurrence
+                }
+
+                if (v === opposite){
+                    pressure++;
+                }
+            }
+
+            if (pressure > maxPressure){
+                maxPressure = pressure;
+            }
+
+            // bucket classification
+            if (pressure <= 1) counts.normal++;
+            else if (pressure <= 3) counts.mild++;
+            else if (pressure <= 5) counts.elevated++;
+            else if (pressure <= 7) counts.high++;
+            else counts.extreme++;
+        }
+
+        result[s] = {
+            counts,
+            max: maxPressure
+        };
+    }
+
+    return result;
+}
+
+// ---------------- RENDER ----------------
+function render(){
+
+    // LIVE PRESSURE (ROW 2)
+    let p=calcPressure(history);
+
+    document.getElementById("live").innerHTML=`
+<span class="label">Live Pressure:</span><br>
+🔴 RO: ${p.RO} |
+⚫ BE: ${p.BE} |
+🔵 BO: ${p.BO} |
+🟡 RE: ${p.RE}
+`;
+
+    // HISTORIC (ROW 3)
+    let h=calcHistory(history);
+
+    document.getElementById("historyStats").innerHTML=`
+<span class="label">Historic Pressure (≤500):</span><br><br>
+
+🔴 RO → N:${h.RO.counts.normal} M:${h.RO.counts.mild} E:${h.RO.counts.elevated} H:${h.RO.counts.high} X:${h.RO.counts.extreme} | max ${h.RO.max}<br>
+
+⚫ BE → N:${h.BE.counts.normal} M:${h.BE.counts.mild} E:${h.BE.counts.elevated} H:${h.BE.counts.high} X:${h.BE.counts.extreme} | max ${h.BE.max}<br>
+
+🔵 BO → N:${h.BO.counts.normal} M:${h.BO.counts.mild} E:${h.BO.counts.elevated} H:${h.BO.counts.high} X:${h.BO.counts.extreme} | max ${h.BO.max}<br>
+
+🟡 RE → N:${h.RE.counts.normal} M:${h.RE.counts.mild} E:${h.RE.counts.elevated} H:${h.RE.counts.high} X:${h.RE.counts.extreme} | max ${h.RE.max}
+`;
+
+    // ROW 4: STREAM (last 50)
+    let stream=document.getElementById("stream");
+    stream.innerHTML="";
+
+    history.slice(0,50).forEach(n=>{
+
+        let v=classify(n);
+
+		let d=document.createElement("div");
+		d.className="cell "+(v||"green");
+		d.textContent = v || 0;
+
+        stream.appendChild(d);
+    });
+
+    // ROW 5: RAW NUMBERS
+    let ndiv=document.getElementById("numbers");
+    ndiv.innerHTML="";
+
+    history.forEach(n=>{
+        let d=document.createElement("div");
+        d.className="cell "+(n===0?"green":(RED.has(n)?"red":"black"));
+        d.textContent=n;
+        ndiv.appendChild(d);
+    });
+}
+
+// ---------------- INPUT ----------------
+document.getElementById("input").addEventListener("keydown",e=>{
+    if(e.key==="Enter"){
+        let vals=parseInput(e.target.value);
+
+        if(vals.length){
+            history=[...vals.reverse(),...history];
+        }
+
+        e.target.value="";
+        render();
+    }
+});
+
+</script>
+
+</body>
+</html>
