@@ -6,6 +6,12 @@ It is designed to visualize how roulette sequences evolve over time using derive
 
 ---
 
+## Live Demo
+
+> `https://wesharethisplace.github.io/roulette-pressure-engine/`
+
+---
+
 ## ⚙Core Concept
 
 Instead of treating roulette outcomes as isolated events, this tool models them as a **state pressure system**:
